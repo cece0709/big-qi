@@ -1,0 +1,20 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const events={},cached=new Map(),deleted=[];
+const cache={addAll:async urls=>{for(const u of urls){assert.ok(u==='/'||fs.existsSync('dist'+u),'missing '+u);cached.set(u,{asset:u});}}};
+const self={location:{origin:'https://example.test'},clients:{claim:async()=>{}},addEventListener:(name,fn)=>events[name]=fn,skipWaiting:()=>{self.activated=true}};
+const caches={open:async()=>cache,match:async request=>cached.get(typeof request==='string'?request:new URL(request.url).pathname),keys:async()=>['yijian-old','unrelated-cache'],delete:async key=>deleted.push(key)};
+vm.runInNewContext(fs.readFileSync('dist/sw.js','utf8'),{self,caches,URL,fetch:async()=>{throw Error('offline')}});
+let pending;events.install({waitUntil:p=>pending=p});await pending;
+assert.ok(cached.has('/index.html'));assert.ok([...cached.keys()].some(k=>k.includes('analysis.worker')),'international chess worker must be cached');assert.ok([...cached.keys()].some(k=>k.includes('teaching.worker')));
+events.fetch({request:{url:'https://example.test/',method:'GET',mode:'navigate'},respondWith:p=>pending=p});
+assert.equal((await pending).asset,'/index.html');
+const worker=[...cached.keys()].find(k=>k.includes('teaching.worker'));
+events.fetch({request:{url:'https://example.test'+worker,method:'GET',mode:'same-origin'},respondWith:p=>pending=p});
+assert.equal((await pending).asset,worker);
+events.activate({waitUntil:p=>pending=p});await pending;assert.deepEqual(deleted,['yijian-old']);
+events.message({data:{type:'ACTIVATE_UPDATE'}});assert.equal(self.activated,true);
+const manifest=JSON.parse(fs.readFileSync('dist/manifest.webmanifest','utf8'));assert.equal(manifest.display,'standalone');assert.equal(manifest.name,'弈见 · Celia');
+console.log('PASS PWA assets, offline navigation, worker cache, scoped cleanup, update activation, manifest');
+
