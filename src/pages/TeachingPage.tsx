@@ -1,6 +1,9 @@
 /* Copyright (c) 2026 Celia. All rights reserved. */
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {LockKeyhole,Unlock,Lightbulb,RotateCcw,Undo2,ArrowRight} from 'lucide-react';
+import MoveFeedback from '../components/MoveFeedback';
+import {riskyMove} from '../game/feedback';
+import {recordMove} from '../game/progress';
 import Board from '../components/Board';
 import PageTitle from '../components/PageTitle';
 import {initial,apply,basic,reason,names,other,inCheck,moves,type Piece,type Side,type Move} from '../game/rules';
@@ -9,6 +12,7 @@ import {researchMoves} from '../game/research';
 import type {Advice} from '../game/teaching';
 type Frame={board:Piece[];turn:Side;last?:Move};
 export default function TeachingPage({active=true}:{active?:boolean}){
+ const [feedback,setFeedback]=useState(''),[pending,setPending]=useState<Move|null>(null);
  const [frames,setFrames]=useState<Frame[]>([{board:initial(),turn:'red'}]),[locked,setLocked]=useState(false),[player,setPlayer]=useState<Side>('red');
  const [selected,setSelected]=useState<string|null>(null),[placing,setPlacing]=useState<Piece|null>(null),[message,setMessage]=useState('先点棋子，再点空位，可以自由摆放双方棋子。摆好后点击“锁定并开始对弈”。');
  const [advice,setAdvice]=useState<Advice|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0),[lastExplanation,setLastExplanation]=useState('');
@@ -25,9 +29,9 @@ export default function TeachingPage({active=true}:{active?:boolean}){
   worker.onerror=()=>{setBusy(false);setError('分析暂时失败，请点击重新分析。');};worker.postMessage({board,turn,research});
   return()=>worker.terminate();
  },[board,turn,invalid,research,retry,finished,active]);
- function move(m:Move){
+ function move(m:Move){setFeedback('');setPending(null);
   const p=board.find(p=>p.id===m.id);if(!p||p.side!==turn||(research?basic:reason)(board,p,m.x,m.y))return;
-  const next=apply(board,m);setFrames(s=>[...s,{board:next,turn:other(turn),last:m}]);setSelected(null);setAdvice(null);
+  recordMove();const next=apply(board,m);setFrames(s=>[...s,{board:next,turn:other(turn),last:m}]);setSelected(null);setAdvice(null);
   setLastExplanation(advice?.move?.id===m.id&&advice.move.x===m.x&&advice.move.y===m.y?`采用推荐：${advice.why} ${advice.use}`:`你选择了${names[p.side][p.kind]}到${m.x+1}路${m.y+1}行。正在分析后续变化。`);
   setMessage(research?'研究落子完成，暂不判断将帅安全和胜负。':inCheck(next,other(turn))?'将军！下一方必须先解除威胁。':'已落子，正在分析下一步。');
  }
@@ -38,11 +42,11 @@ export default function TeachingPage({active=true}:{active?:boolean}){
   if(finished||noResearchMoves){setMessage('本方没有可走的棋子，可以解锁调整。');return;}if(turn!==player){setMessage('现在由对方行棋，请稍等。');return;}
   if(target?.side===player){setSelected(target.id===selected?null:target.id);return;}
   const p=board.find(p=>p.id===selected);if(!p){setMessage('请先选择本方棋子。');return;}
-  const issue=(research?basic:reason)(board,p,x,y);if(issue){setMessage(issue);return;}move({id:p.id,x,y});
+  const issue=(research?basic:reason)(board,p,x,y);if(issue){setMessage(issue);setFeedback(issue);setPending(null);return;}const m={id:p.id,x,y},warning=research?'':riskyMove(board,m);if(warning){setFeedback(warning);setPending(m);return;}move(m);
  }
  function start(asResearch=false){setConfirming(false);setResearch(asResearch);setLocked(true);setFrames([frame]);setSelected(null);setPlacing(null);setAdvice(null);setMessage(asResearch?'已保留原局面，进入非标准研究模式。只限制基本走法，不判断将帅安全和胜负。':`检查通过，局面已锁定。你执${player==='red'?'红':'黑'}，对方由 AI 操控。`);}
- function restore(){setConfirming(false);setLocked(false);setResearch(false);setFrames([{board:initial(),turn:'red'}]);setSelected(null);setPlacing(null);setAdvice(null);setLastExplanation('');setMessage('已恢复标准开局，可以重新摆局或锁定开始。');}
- function toggleLock(){
+ function restore(){setFeedback('');setPending(null);setConfirming(false);setLocked(false);setResearch(false);setFrames([{board:initial(),turn:'red'}]);setSelected(null);setPlacing(null);setAdvice(null);setLastExplanation('');setMessage('已恢复标准开局，可以重新摆局或锁定开始。');}
+ function toggleLock(){setFeedback('');setPending(null);
   if(locked){setLocked(false);setResearch(false);setSelected(null);setMessage('已解锁，可以继续摆放双方棋子。');return;}
   const found=positionIssues(board,turn);
   if(found.length){setLockIssues(found);setConfirming(true);setMessage('棋局不合理，请选择恢复、调整或继续研究。');return;}
@@ -54,6 +58,7 @@ export default function TeachingPage({active=true}:{active?:boolean}){
  {research&&<p className="research-banner" role="status">非标准研究：保留原摆局；只按棋子基本走法移动，不校验将帅安全、不判胜负。修正局面后重新锁定可回到正常对弈。</p>}
  <Board board={board} selected={selected} onCell={click} last={frame.last} freePlacement={!locked} research={research} recommendation={advice?.move}/><p className="board-legend">金色箭头：当前推荐走法 · 坐标从棋盘左上角起算</p>
  <div className="board-toolbar"><button disabled={frames.length<2} onClick={()=>{const count=locked&&turn===player?2:1;setFrames(s=>s.slice(0,Math.max(1,s.length-count)));setSelected(null);setAdvice(null);setLastExplanation('');}}><Undo2 size={16}/>撤回</button><button onClick={restore}><RotateCcw size={16}/>标准开局</button></div>
+ {feedback&&<MoveFeedback message={feedback} onRetry={()=>{setFeedback('');setPending(null);}} onShow={()=>{setFeedback('');setPending(null);if(advice?.move){setSelected(advice.move.id);setMessage(advice.title+'。'+advice.why);}}} onContinue={pending?()=>move(pending):undefined}/>}
  <p className="teaching-message" aria-live="polite">{finished?`${turn==='red'?'红方':'黑方'}无合法走法，本局结束。`:noResearchMoves?'当前一方没有可演示走法，请解锁补子或调整棋局。':message}</p></section>
  <aside className="play-info"><div className="info-card"><h3>{locked?<LockKeyhole size={19}/>:<Unlock size={19}/>} {locked?(research?'已锁定 · 非标准研究':'锁定一方 · 正常对弈'):'自由研究 · 未锁定'}</h3>
  <div className="teaching-selects"><label>我执哪方<select value={player} disabled={locked} onChange={e=>setPlayer(e.target.value as Side)}><option value="red">红方</option><option value="black">黑方</option></select></label><label>谁先走<select disabled={locked} value={turn} onChange={e=>setFrames(s=>[...s,{board,turn:e.target.value as Side}])}><option value="red">红方</option><option value="black">黑方</option></select></label></div>

@@ -1,0 +1,10 @@
+const assert={equal:(a:unknown,b:unknown)=>{if(a!==b)throw Error(String(a)+' !== '+String(b));},deepEqual:(a:unknown,b:unknown)=>{if(JSON.stringify(a)!==JSON.stringify(b))throw Error('Values differ');}};
+import {decodeProgress,statistics,dayKey} from './progress';
+assert.equal(decodeProgress('{broken').pieces.length,0);
+const p=decodeProgress(JSON.stringify({version:1,pieces:['r','r','invalid'],puzzles:{good:3,bad:9},games:[{id:'one',day:'2026-09-18',result:'win',ai:true},{id:'one',day:'2026-09-18',result:'win',ai:true}],days:{'2026-09-17':{moves:1,pieces:[],puzzles:[]},'2026-09-16':{moves:2,pieces:[],puzzles:[]}},badges:[]}));
+assert.deepEqual(p.pieces,['r']);assert.deepEqual(p.puzzles,{good:3});assert.equal(p.games.length,1);
+assert.equal(statistics(p,new Date(2026,8,18,1)).days,2);
+assert.equal(statistics(p,new Date(2026,8,19,1)).days,0);
+p.games.push({id:'two',day:'2026-09-18',result:'win',ai:true},{id:'three',day:'2026-09-18',result:'win',ai:false},{id:'four',day:'2026-09-18',result:'win',ai:true});
+assert.equal(statistics(p).best,3);assert.equal(statistics(p).wins,3);assert.equal(dayKey(new Date(2026,0,2)),'2026-01-02');
+console.log('Progress sanitization, game deduplication, local dates, study streak and AI-only wins passed.');
