@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "CampusFlow AI",
+    "slug": "campusflow-ai",
+    "version": "1.0.4",
+    "scheme": "campusflow",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.campusflow.ai",
+      "versionCode": 5,
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.campusflow.ai"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "选择你的人设头像或专属背景。",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4a6c4ca3-301f-49f9-b619-4f1f4212d70f"
+      }
+    },
+    "owner": "cece0709"
+  }
+}
+
+
+
+
