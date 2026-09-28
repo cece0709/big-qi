@@ -2,14 +2,14 @@
   "expo": {
     "name": "CampusFlow AI",
     "slug": "campusflow-ai",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "scheme": "campusflow",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "android": {
       "package": "com.campusflow.ai",
-      "versionCode": 5,
+      "versionCode": 6,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true
     },

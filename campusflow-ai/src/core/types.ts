@@ -1,6 +1,7 @@
 export const TASK_CATEGORIES = ['学习', '阅读', '运动', '休息', '课程', '其他'] as const;
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
 export type ResponseLength = 'short' | 'medium' | 'long';
+export type PersonaNotificationTone = 'warm' | 'direct' | 'light';
 export type PersonaCompletionField = 'name' | 'identity' | 'background' | 'personalityTags' | 'speakingStyle' | 'userNickname' | 'greeting' | 'dos' | 'donts' | 'pinnedMemories';
 export interface PersonaCompletionState {
   /** Fields still awaiting an explicit document detail or user-approved chat completion. */
@@ -45,7 +46,12 @@ export interface FocusSession {
 export interface Settings {
   aiMode: 'mock' | 'api'; selectedPersonaId: string | null; notificationsEnabled: boolean;
   personaNotificationsEnabled: boolean; personaNotificationPersonaId: string | null;
+  /** Kept for older exports and app versions; it mirrors the first selected time. */
   personaNotificationTime: string; personaNotificationId: string | null;
+  /** Daily local-message times chosen by the owner. */
+  personaNotificationTimes: string[]; personaNotificationIds: string[];
+  personaNotificationTone: PersonaNotificationTone;
+  personaQuietHoursEnabled: boolean; personaQuietHoursStart: string; personaQuietHoursEnd: string;
   theme: 'mint' | 'lavender' | 'peach'; backgroundType: 'gradient' | 'solid' | 'image';
   backgroundUri: string | null;
 }

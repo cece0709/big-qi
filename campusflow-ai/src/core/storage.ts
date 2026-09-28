@@ -10,6 +10,8 @@ export function createInitialData(now = new Date()): AppData {
     settings: { aiMode: 'mock', selectedPersonaId: personas[0]?.id ?? null, notificationsEnabled: false,
       personaNotificationsEnabled: false, personaNotificationPersonaId: personas[0]?.id ?? null,
       personaNotificationTime: '20:00', personaNotificationId: null,
+      personaNotificationTimes: ['20:00'], personaNotificationIds: [], personaNotificationTone: 'warm',
+      personaQuietHoursEnabled: false, personaQuietHoursStart: '22:30', personaQuietHoursEnd: '07:30',
       theme: 'mint', backgroundType: 'gradient', backgroundUri: null }, timer: null };
 }
 function requireArray(input: Record<string, unknown>, key: string): unknown[] {
@@ -24,6 +26,15 @@ function recordWithId(value: unknown): Record<string, unknown> & { id: string } 
 function requireIso(value: unknown): string { if (!validIso(value)) throw new Error('本地记录的日期无效'); return value; }
 function nullableString(value: unknown): string | null { if (value === null || value === undefined) return null; if (typeof value !== 'string') throw new Error('本地记录的关联无效'); return value; }
 function validNotificationTime(value: unknown): value is string { return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value); }
+function notificationTimes(value: unknown, fallback: string): string[] {
+  const source = value === undefined ? [fallback] : value;
+  if (!Array.isArray(source) || !source.length || source.some((item) => !validNotificationTime(item))) throw new Error('角色消息提醒时间无效');
+  return [...new Set(source)].sort();
+}
+function notificationIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error('角色消息提醒标识无效');
+  return [...new Set(value)];
+}
 function checkUnique(items: { id: string }[], name: string): void { if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error(`本地${name}存在重复记录`); }
 export function migrateData(input: unknown): AppData {
   if (!isRecord(input)) throw new Error('本地数据格式无效，原始数据已保留');
@@ -66,16 +77,24 @@ export function migrateData(input: unknown): AppData {
       startedAt: requireIso(item.startedAt), endedAt: requireIso(item.endedAt), isExample: item.isExample === true };
   });
   if (!isRecord(source.settings)) throw new Error('设置格式无效');
+  const sourceSettings = source.settings;
   const defaults = createInitialData().settings;
-  const rawSettings = { ...defaults, ...source.settings };
-  if (!['mock', 'api'].includes(rawSettings.aiMode) || !['mint', 'lavender', 'peach'].includes(rawSettings.theme) || !['gradient', 'solid', 'image'].includes(rawSettings.backgroundType) || typeof rawSettings.notificationsEnabled !== 'boolean' || typeof rawSettings.personaNotificationsEnabled !== 'boolean' || !validNotificationTime(rawSettings.personaNotificationTime)) throw new Error('设置项无效');
+  const rawSettings = { ...defaults, ...sourceSettings };
+  if (!['mock', 'api'].includes(rawSettings.aiMode) || !['mint', 'lavender', 'peach'].includes(rawSettings.theme) || !['gradient', 'solid', 'image'].includes(rawSettings.backgroundType) || typeof rawSettings.notificationsEnabled !== 'boolean' || typeof rawSettings.personaNotificationsEnabled !== 'boolean' || typeof rawSettings.personaQuietHoursEnabled !== 'boolean' || !validNotificationTime(rawSettings.personaNotificationTime) || !validNotificationTime(rawSettings.personaQuietHoursStart) || !validNotificationTime(rawSettings.personaQuietHoursEnd) || !['warm', 'direct', 'light'].includes(rawSettings.personaNotificationTone as string)) throw new Error('设置项无效');
+  const times = notificationTimes(sourceSettings.personaNotificationTimes, rawSettings.personaNotificationTime);
+  const storedIds = notificationIds(sourceSettings.personaNotificationIds === undefined ? [] : rawSettings.personaNotificationIds);
+  const legacyNotificationId = nullableString(rawSettings.personaNotificationId);
+  const ids = [...new Set([...storedIds, ...(legacyNotificationId ? [legacyNotificationId] : [])])];
   const settings: Settings = {
     aiMode: rawSettings.aiMode as Settings['aiMode'], theme: rawSettings.theme as Settings['theme'],
     backgroundType: rawSettings.backgroundType as Settings['backgroundType'], notificationsEnabled: rawSettings.notificationsEnabled,
     personaNotificationsEnabled: rawSettings.personaNotificationsEnabled,
     personaNotificationPersonaId: nullableString(rawSettings.personaNotificationPersonaId),
-    personaNotificationTime: rawSettings.personaNotificationTime,
-    personaNotificationId: nullableString(rawSettings.personaNotificationId),
+    personaNotificationTime: times[0] ?? rawSettings.personaNotificationTime, personaNotificationId: ids[0] ?? null,
+    personaNotificationTimes: times, personaNotificationIds: ids,
+    personaNotificationTone: rawSettings.personaNotificationTone as Settings['personaNotificationTone'],
+    personaQuietHoursEnabled: rawSettings.personaQuietHoursEnabled,
+    personaQuietHoursStart: rawSettings.personaQuietHoursStart, personaQuietHoursEnd: rawSettings.personaQuietHoursEnd,
     backgroundUri: nullableString(rawSettings.backgroundUri), selectedPersonaId: nullableString(rawSettings.selectedPersonaId),
   };
   if (settings.backgroundUri && !validImageUri(settings.backgroundUri)) throw new Error('背景图片地址无效');

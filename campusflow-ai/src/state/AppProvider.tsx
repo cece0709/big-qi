@@ -2,12 +2,23 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { ActivityIndicator, AppState, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DataStore, createInitialData, createTask, finishTimer, getTimerProgress, setTaskCompleted, updateTask } from '../core';
-import type { AppData, Settings, Task, TaskDraft } from '../core/types';
-import { cancelAllReminders, cancelReminder, requestNotifications, schedulePersonaMessage, scheduleReminder, sendPersonaMessageTest } from '../services/device';
+import type { AppData, PersonaNotificationTone, Settings, Task, TaskDraft } from '../core/types';
+import { cancelAllReminders, cancelPersonaMessages, cancelReminder, normalizePersonaMessageTimes, requestNotifications, schedulePersonaMessages, scheduleReminder, sendPersonaMessageTest } from '../services/device';
 import { Button, Label, Notice, Sheet, colors } from '../components/ui';
 
 type ConfirmRequest = { title:string; message:string; resolve:(value:boolean) => void };
-type PersonaNotificationOptions = { enabled:boolean; personaId?:string | null; time?:string };
+export type PersonaNotificationOptions = {
+  enabled:boolean;
+  personaId?:string | null;
+  /** Legacy single daily time. It remains accepted for older callers. */
+  time?:string;
+  /** One or more daily times for local device reminders. */
+  times?:readonly string[];
+  tone?:PersonaNotificationTone;
+  quietHoursEnabled?:boolean;
+  quietHoursStart?:string;
+  quietHoursEnd?:string;
+};
 type AppContextValue = {
   data:AppData;
   commit:(updater:(current:AppData) => AppData) => Promise<AppData>;
@@ -25,6 +36,29 @@ type AppContextValue = {
 };
 const AppContext = createContext<AppContextValue | null>(null);
 
+function personaNotificationTimes(settings:Settings): string[] {
+  const configured = settings.personaNotificationTimes.length ? settings.personaNotificationTimes : [settings.personaNotificationTime];
+  return normalizePersonaMessageTimes(configured);
+}
+
+function configuredPersonaNotificationIds(settings:Settings): string[] {
+  return [...new Set([...settings.personaNotificationIds, settings.personaNotificationId].filter((id): id is string => typeof id === 'string' && id.length > 0))];
+}
+
+function personaScheduleOptions(settings:Settings) {
+  return {
+    tone:settings.personaNotificationTone,
+    quietHoursEnabled:settings.personaQuietHoursEnabled,
+    quietHoursStart:settings.personaQuietHoursStart,
+    quietHoursEnd:settings.personaQuietHoursEnd,
+  };
+}
+
+function requestedPersonaTimes(settings:Settings, options:PersonaNotificationOptions): string[] {
+  const requested = options.times ?? (options.time ? [options.time] : personaNotificationTimes(settings));
+  return normalizePersonaMessageTimes(requested);
+}
+
 export function AppProvider({ children }: PropsWithChildren) {
   const store = useRef(new DataStore(AsyncStorage)).current;
   const [data, setData] = useState<AppData>(createInitialData());
@@ -33,6 +67,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [toastMessage, setToastMessage] = useState('');
   const [confirmation, setConfirmation] = useState<ConfirmRequest | null>(null);
   const completing = useRef(false);
+  const clearingPersonaMessageIds = useRef(false);
 
   const toast = useCallback((message:string) => setToastMessage(message), []);
   const load = useCallback(async () => {
@@ -60,37 +95,59 @@ export function AppProvider({ children }: PropsWithChildren) {
       await commit((next) => ({
         ...next,
         tasks:next.tasks.map((task) => ({ ...task, notificationId:null })),
-        settings:{ ...next.settings, notificationsEnabled:false, personaNotificationId:null }
+        settings:{ ...next.settings, notificationsEnabled:false, personaNotificationId:null, personaNotificationIds:[] }
       }));
       return;
     }
     const granted = await requestNotifications();
     if (!granted) throw new Error('通知权限被拒绝；可在系统设置中再次开启。');
     const before = store.getSnapshot();
+    await cancelPersonaMessages(configuredPersonaNotificationIds(before.settings));
     const taskNotifications = await Promise.all(before.tasks.map(async (task) => ({
       id:task.id, notificationId:await scheduleReminder(task)
     })));
     const notificationByTaskId = new Map(taskNotifications.map((item) => [item.id, item.notificationId]));
     const persona = before.personas.find((item) => item.id === before.settings.personaNotificationPersonaId);
-    const personaNotificationId = before.settings.personaNotificationsEnabled && persona
-      ? await schedulePersonaMessage(persona, before.settings.personaNotificationTime)
-      : null;
+    const times = personaNotificationTimes(before.settings);
+    const personaNotificationIds = before.settings.personaNotificationsEnabled && persona
+      ? await schedulePersonaMessages(persona, times, personaScheduleOptions(before.settings))
+      : [];
     await commit((next) => ({
       ...next,
       tasks:next.tasks.map((task) => ({ ...task, notificationId:notificationByTaskId.get(task.id) ?? null })),
-      settings:{ ...next.settings, notificationsEnabled:true, personaNotificationId }
+      settings:{
+        ...next.settings,
+        notificationsEnabled:true,
+        personaNotificationTime:times[0] ?? before.settings.personaNotificationTime,
+        personaNotificationId:personaNotificationIds[0] ?? null,
+        personaNotificationIds
+      }
     }));
   }, [commit, store]);
 
-  const configurePersonaNotification = useCallback(async ({ enabled, personaId, time }:PersonaNotificationOptions) => {
+  const configurePersonaNotification = useCallback(async (options:PersonaNotificationOptions) => {
     let current = store.getSnapshot();
-    const selectedId = personaId ?? current.settings.personaNotificationPersonaId ?? current.settings.selectedPersonaId;
-    const selectedTime = time ?? current.settings.personaNotificationTime;
-    if (!enabled) {
-      await cancelReminder(current.settings.personaNotificationId);
+    const selectedId = options.personaId ?? current.settings.personaNotificationPersonaId ?? current.settings.selectedPersonaId;
+    const selectedTimes = requestedPersonaTimes(current.settings, options);
+    const selectedTone = options.tone ?? current.settings.personaNotificationTone;
+    const quietHoursEnabled = options.quietHoursEnabled ?? current.settings.personaQuietHoursEnabled;
+    const quietHoursStart = options.quietHoursStart ?? current.settings.personaQuietHoursStart;
+    const quietHoursEnd = options.quietHoursEnd ?? current.settings.personaQuietHoursEnd;
+    const selectedTime = selectedTimes[0] ?? current.settings.personaNotificationTime;
+    if (!options.enabled) {
+      await cancelPersonaMessages(configuredPersonaNotificationIds(current.settings));
       await commit((next) => ({ ...next, settings:{
-        ...next.settings, personaNotificationsEnabled:false,
-        personaNotificationPersonaId:selectedId, personaNotificationTime:selectedTime, personaNotificationId:null
+        ...next.settings,
+        personaNotificationsEnabled:false,
+        personaNotificationPersonaId:selectedId,
+        personaNotificationTime:selectedTime,
+        personaNotificationId:null,
+        personaNotificationTimes:selectedTimes,
+        personaNotificationIds:[],
+        personaNotificationTone:selectedTone,
+        personaQuietHoursEnabled:quietHoursEnabled,
+        personaQuietHoursStart:quietHoursStart,
+        personaQuietHoursEnd:quietHoursEnd
       } }));
       return;
     }
@@ -101,11 +158,28 @@ export function AppProvider({ children }: PropsWithChildren) {
     }
     const persona = current.personas.find((item) => item.id === selectedId);
     if (!persona) throw new Error('所选 AI 人设已不存在，请重新选择。');
-    const notificationId = await schedulePersonaMessage(persona, selectedTime);
-    await cancelReminder(current.settings.personaNotificationId);
+    const replacementIds = await schedulePersonaMessages(persona, selectedTimes, {
+      tone:selectedTone, quietHoursEnabled, quietHoursStart, quietHoursEnd
+    });
+    if (!replacementIds.length) throw new Error('所选提醒时间都位于免打扰时段，请调整时间或关闭免打扰。');
+    try {
+      await cancelPersonaMessages(configuredPersonaNotificationIds(current.settings));
+    } catch (error) {
+      await cancelPersonaMessages(replacementIds);
+      throw error;
+    }
     await commit((next) => ({ ...next, settings:{
-      ...next.settings, personaNotificationsEnabled:true,
-      personaNotificationPersonaId:persona.id, personaNotificationTime:selectedTime, personaNotificationId:notificationId
+      ...next.settings,
+      personaNotificationsEnabled:true,
+      personaNotificationPersonaId:persona.id,
+      personaNotificationTime:selectedTime,
+      personaNotificationId:replacementIds[0] ?? null,
+      personaNotificationTimes:selectedTimes,
+      personaNotificationIds:replacementIds,
+      personaNotificationTone:selectedTone,
+      personaQuietHoursEnabled:quietHoursEnabled,
+      personaQuietHoursStart:quietHoursStart,
+      personaQuietHoursEnd:quietHoursEnd
     } }));
   }, [commit, setNotificationsEnabled, store]);
 
@@ -117,8 +191,19 @@ export function AppProvider({ children }: PropsWithChildren) {
     const selectedId = personaId ?? current.settings.personaNotificationPersonaId ?? current.settings.selectedPersonaId;
     const persona = current.personas.find((item) => item.id === selectedId);
     if (!persona) throw new Error('请先创建或选择一位 AI 人设。');
-    await sendPersonaMessageTest(persona);
+    await sendPersonaMessageTest(persona, current.settings.personaNotificationTone);
   }, [setNotificationsEnabled, store]);
+
+  useEffect(() => {
+    const settings = data.settings;
+    const ids = configuredPersonaNotificationIds(settings);
+    if (!ready || clearingPersonaMessageIds.current || ids.length === 0 || (settings.notificationsEnabled && settings.personaNotificationsEnabled)) return;
+    clearingPersonaMessageIds.current = true;
+    void cancelPersonaMessages(ids)
+      .then(() => commit((current) => ({ ...current, settings:{ ...current.settings, personaNotificationId:null, personaNotificationIds:[] } })))
+      .catch((error:unknown) => toast(error instanceof Error ? error.message : '角色消息提醒取消失败'))
+      .finally(() => { clearingPersonaMessageIds.current = false; });
+  }, [commit, data.settings, ready, toast]);
 
   useEffect(() => {
     if (!ready) return;
@@ -200,4 +285,3 @@ export function useApp():AppContextValue {
   if (!value) throw new Error('AppProvider is required');
   return value;
 }
-

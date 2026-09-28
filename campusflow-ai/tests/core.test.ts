@@ -136,17 +136,29 @@ describe('statistics and persistent local data',()=>{
     delete settings.personaNotificationPersonaId;
     delete settings.personaNotificationTime;
     delete settings.personaNotificationId;
+    delete settings.personaNotificationTimes;
+    delete settings.personaNotificationIds;
+    delete settings.personaNotificationTone;
+    delete settings.personaQuietHoursEnabled;
+    delete settings.personaQuietHoursStart;
+    delete settings.personaQuietHoursEnd;
     const restored=migrateData(previous);
     expect(restored.settings.personaNotificationsEnabled).toBe(false);
     expect(restored.settings.personaNotificationPersonaId).toBe(restored.settings.selectedPersonaId);
     expect(restored.settings.personaNotificationTime).toBe('20:00');
     expect(restored.settings.personaNotificationId).toBeNull();
+    expect(restored.settings.personaNotificationTimes).toEqual(['20:00']);
+    expect(restored.settings.personaNotificationIds).toEqual([]);
+    expect(restored.settings.personaNotificationTone).toBe('warm');
+    expect(restored.settings.personaQuietHoursEnabled).toBe(false);  });
+  it('merges legacy and multi-time persona message IDs without losing cancellation targets',()=>{
+    const previous=JSON.parse(JSON.stringify(createInitialData(new Date('2026-09-18T00:00:00Z')))) as Record<string, unknown>;
+    const settings=previous.settings as Record<string, unknown>;
+    settings.personaNotificationId='legacy-id';
+    settings.personaNotificationIds=['daily-one','legacy-id','daily-one'];
+    const restored=migrateData(previous);
+    expect(restored.settings.personaNotificationIds).toHaveLength(2);
+    expect(restored.settings.personaNotificationIds).toEqual(expect.arrayContaining(['legacy-id','daily-one']));
+    expect(restored.settings.personaNotificationIds).toContain(restored.settings.personaNotificationId);
   });
 });
-
-
-
-
-
-
-

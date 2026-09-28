@@ -16,6 +16,7 @@ pnpm check
 - 番茄钟暂停、继续、完成与后台时间戳恢复。
 - 真实专注/完成任务统计与分类聚合。
 - AsyncStorage 适配器的写入与重新读取。
+- 旧版单一角色提醒设置迁移到多时段、语气、免打扰和多条通知标识。
 - Mock AI 的流式回复与任务提取。
 - NDJSON 分块解析。
 - Node 代理的 `/api/health`、无密钥任务提取和无密钥聊天失败路径。
@@ -31,6 +32,8 @@ pnpm check
 5. 用户主动加载示例数据后，统计趋势、热力图和分类更新。
 6. 允许/拒绝相册与通知权限，确认 App 显示可理解的反馈。
 7. 无网络、错误的代理地址和未配置 API Key 时，确认 App 显示重试路径。
+8. 在“我的 → 陪伴节奏”选择多个每日时段、不同消息语气和免打扰预设；测试消息应立即显示，全部时段落入免打扰时开启应显示调整提示。
+9. 在“生活”检查“下一件事”卡片；点“去专注”后，关联任务应自动带入专注面板。
 
 ## 当前运行验证
 
@@ -43,7 +46,7 @@ pnpm check
 ```text
 pnpm typecheck                         通过
 pnpm lint                              通过，0 errors / 0 warnings
-pnpm test                              3 个测试文件、13 个测试通过
+pnpm test                              3 个测试文件、22 个测试通过
 pnpm exec expo export --platform web   通过
 pnpm exec expo export --platform android 通过
 GET /api/health                        200，Mock-required 状态正确
