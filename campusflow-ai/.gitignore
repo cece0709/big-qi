@@ -20,3 +20,9 @@ expo-env.d.ts
 # Local Android build fallback (not application source)
 .local-android-tools/
 .local-android-build/
+
+# Keep the Android source of the local Focus Guard Expo module.
+!modules/
+!modules/focus-guard/
+!modules/focus-guard/android/
+!modules/focus-guard/android/**

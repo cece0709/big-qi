@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import { ActivityIndicator, AppState, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DataStore, createInitialData, createTask, finishTimer, getTimerProgress, setTaskCompleted, updateTask } from '../core';
+import { DataStore, createInitialData, createTask, finishTimer, focusGuardScopeKey, getTimerProgress, setTaskCompleted, updateTask } from '../core';
 import type { AppData, PersonaNotificationTone, Settings, Task, TaskDraft } from '../core/types';
 import { cancelAllReminders, cancelPersonaMessages, cancelReminder, normalizePersonaMessageTimes, requestNotifications, schedulePersonaMessages, scheduleReminder, sendPersonaMessageTest } from '../services/device';
+import { resetFocusGuardConsent, syncFocusGuardSession } from '../services/focusGuard';
 import { Button, Label, Notice, Sheet, colors } from '../components/ui';
 
 type ConfirmRequest = { title:string; message:string; resolve:(value:boolean) => void };
@@ -68,6 +69,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [confirmation, setConfirmation] = useState<ConfirmRequest | null>(null);
   const completing = useRef(false);
   const clearingPersonaMessageIds = useRef(false);
+  const appliedFocusGuardSession = useRef<string | null>(null);
 
   const toast = useCallback((message:string) => setToastMessage(message), []);
   const load = useCallback(async () => {
@@ -207,6 +209,38 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!ready) return;
+    const settings = data.settings;
+    const timer = data.timer;
+    const selectedPackages = settings.focusGuardSelectedApps.map((app) => app.packageName);
+    const expectedScope = focusGuardScopeKey(settings.focusGuardMode, settings.focusGuardSelectedApps);
+    const progress = timer ? getTimerProgress(timer) : null;
+    const expiresAt = timer?.lastStartedAt !== null && timer?.lastStartedAt !== undefined && timer?.plannedSeconds !== null
+      ? timer.lastStartedAt + Math.max(0, timer.plannedSeconds - timer.accumulatedSeconds) * 1000 + 1_000
+      : 0;
+    const active = Boolean(
+      settings.focusGuardEnabled &&
+      settings.focusGuardMode === 'nudge' &&
+      selectedPackages.length &&
+      settings.focusGuardConsent?.secondConfirmedAt &&
+      settings.focusGuardConsent.scopeKey === expectedScope &&
+      timer?.mode === 'focus' &&
+      timer.status === 'running' &&
+      progress &&
+      !progress.isComplete &&
+      expiresAt > Date.now()
+    );
+    const sessionKey = (active ? 'on' : 'off') + ':' + selectedPackages.join('|') + ':' + expiresAt;
+    if (appliedFocusGuardSession.current === sessionKey) return;
+    appliedFocusGuardSession.current = sessionKey;
+    void syncFocusGuardSession({ active, packageNames:selectedPackages, expiresAt })
+      .catch((error:unknown) => {
+        appliedFocusGuardSession.current = null;
+        if (active) toast(error instanceof Error ? '专注守护未同步：' + error.message : '专注守护未同步，请检查系统授权。');
+      });
+  }, [data.settings, data.timer, ready, toast]);
+
+  useEffect(() => {
+    if (!ready) return;
     const settle = () => {
       const current = store.getSnapshot();
       if (completing.current || !current.timer || !getTimerProgress(current.timer).isComplete) return;
@@ -261,7 +295,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     toast('任务已删除');
   }, [commit, confirm, toast]);
   const resetAll = useCallback(async () => {
-    await cancelAllReminders();
+    await Promise.all([cancelAllReminders(), resetFocusGuardConsent()]);
     const next = await store.clear();
     setData(next); toast('本地数据已清除');
   }, [store, toast]);

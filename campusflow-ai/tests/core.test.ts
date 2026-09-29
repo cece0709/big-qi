@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DataStore, buildSystemPrompt, createInitialData, createPersona, createTask, createTimer,
   extractTaskLocally, finishTimer, getStatistics, getTimerProgress, pauseTimer, resumeTimer,
-  setTaskCompleted, updateTask, updatePersona, validatePersona, importPersona, migrateData, preparePersonaImport, setPersonaAutoCompletion, suggestPersonaCompletionFromInteraction, completePersonaFromInteraction
+  setTaskCompleted, updateTask, updatePersona, validatePersona, importPersona, migrateData, preparePersonaImport, setPersonaAutoCompletion, suggestPersonaCompletionFromInteraction, completePersonaFromInteraction, focusGuardScopeKey
 } from '../src/core';
 import type { StorageAdapter } from '../src/core/types';
 
@@ -142,6 +142,10 @@ describe('statistics and persistent local data',()=>{
     delete settings.personaQuietHoursEnabled;
     delete settings.personaQuietHoursStart;
     delete settings.personaQuietHoursEnd;
+    delete settings.focusGuardMode;
+    delete settings.focusGuardEnabled;
+    delete settings.focusGuardSelectedApps;
+    delete settings.focusGuardConsent;
     const restored=migrateData(previous);
     expect(restored.settings.personaNotificationsEnabled).toBe(false);
     expect(restored.settings.personaNotificationPersonaId).toBe(restored.settings.selectedPersonaId);
@@ -150,8 +154,24 @@ describe('statistics and persistent local data',()=>{
     expect(restored.settings.personaNotificationTimes).toEqual(['20:00']);
     expect(restored.settings.personaNotificationIds).toEqual([]);
     expect(restored.settings.personaNotificationTone).toBe('warm');
-    expect(restored.settings.personaQuietHoursEnabled).toBe(false);  });
-  it('merges legacy and multi-time persona message IDs without losing cancellation targets',()=>{
+    expect(restored.settings.personaQuietHoursEnabled).toBe(false);
+    expect(restored.settings.focusGuardMode).toBe('insights');
+    expect(restored.settings.focusGuardEnabled).toBe(false);
+    expect(restored.settings.focusGuardSelectedApps).toEqual([]);
+    expect(restored.settings.focusGuardConsent).toBeNull();
+  });
+  it('invalidates stale focus guard confirmation when its application scope changes',()=>{
+    const previous=JSON.parse(JSON.stringify(createInitialData(new Date('2026-09-18T00:00:00Z')))) as Record<string, unknown>;
+    const settings=previous.settings as Record<string, unknown>;
+    settings.focusGuardMode='nudge';
+    settings.focusGuardEnabled=true;
+    settings.focusGuardSelectedApps=[{packageName:'com.example.video',label:'视频',selectedAt:'2026-09-18T00:00:00.000Z'}];
+    settings.focusGuardConsent={disclosureVersion:1,scopeKey:focusGuardScopeKey('insights',[]),firstConfirmedAt:'2026-09-18T00:00:00.000Z',secondConfirmedAt:'2026-09-18T00:01:00.000Z'};
+    const restored=migrateData(previous);
+    expect(restored.settings.focusGuardConsent).toBeNull();
+    expect(restored.settings.focusGuardEnabled).toBe(false);
+    expect(restored.settings.focusGuardSelectedApps[0]?.packageName).toBe('com.example.video');
+  });  it('merges legacy and multi-time persona message IDs without losing cancellation targets',()=>{
     const previous=JSON.parse(JSON.stringify(createInitialData(new Date('2026-09-18T00:00:00Z')))) as Record<string, unknown>;
     const settings=previous.settings as Record<string, unknown>;
     settings.personaNotificationId='legacy-id';

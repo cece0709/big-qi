@@ -2,15 +2,14 @@
   "expo": {
     "name": "CampusFlow AI",
     "slug": "campusflow-ai",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "scheme": "campusflow",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "android": {
       "package": "com.campusflow.ai",
-      "versionCode": 6,
-      "edgeToEdgeEnabled": true,
+      "versionCode": 7,
       "predictiveBackGestureEnabled": true
     },
     "ios": {
@@ -45,6 +44,7 @@
     "owner": "cece0709"
   }
 }
+
 
 
 

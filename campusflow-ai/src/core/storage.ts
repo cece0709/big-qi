@@ -1,5 +1,6 @@
-import type { AppData, Conversation, FocusSession, Message, Persona, Settings, StorageAdapter, Task, TimerState } from './types';
+import type { AppData, Conversation, FocusGuardApp, FocusGuardConsent, FocusGuardMode, FocusSession, Message, Persona, Settings, StorageAdapter, Task, TimerState } from './types';
 import { TASK_CATEGORIES } from './types';
+import { focusGuardScopeKey, isFocusGuardPackageName } from './focusGuard';
 import { createExamplePersonas, validatePersona } from './personas';
 import { validateTaskDraft, taskDueAt } from './tasks';
 import { isRecord, localDate, validImageUri, validIso } from './utils';
@@ -12,6 +13,7 @@ export function createInitialData(now = new Date()): AppData {
       personaNotificationTime: '20:00', personaNotificationId: null,
       personaNotificationTimes: ['20:00'], personaNotificationIds: [], personaNotificationTone: 'warm',
       personaQuietHoursEnabled: false, personaQuietHoursStart: '22:30', personaQuietHoursEnd: '07:30',
+      focusGuardMode: 'insights', focusGuardEnabled: false, focusGuardSelectedApps: [], focusGuardConsent: null,
       theme: 'mint', backgroundType: 'gradient', backgroundUri: null }, timer: null };
 }
 function requireArray(input: Record<string, unknown>, key: string): unknown[] {
@@ -34,6 +36,27 @@ function notificationTimes(value: unknown, fallback: string): string[] {
 function notificationIds(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw new Error('角色消息提醒标识无效');
   return [...new Set(value)];
+}
+function focusGuardApps(value: unknown): FocusGuardApp[] {
+  if (!Array.isArray(value)) throw new Error('专注守护应用列表无效');
+  const seen = new Set<string>();
+  return value.map((value) => {
+    if (!isRecord(value) || !isFocusGuardPackageName(value.packageName) || typeof value.label !== 'string' || !value.label.trim() || value.label.length > 160 || !validIso(value.selectedAt)) throw new Error('专注守护应用无效');
+    if (seen.has(value.packageName)) throw new Error('专注守护应用重复');
+    seen.add(value.packageName);
+    return { packageName:value.packageName, label:value.label.trim(), selectedAt:value.selectedAt };
+  });
+}
+function focusGuardConsent(value: unknown, mode: FocusGuardMode, apps: readonly FocusGuardApp[]): FocusGuardConsent | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value) || value.disclosureVersion !== 1 || typeof value.scopeKey !== 'string' || !validIso(value.firstConfirmedAt) || (value.secondConfirmedAt !== null && !validIso(value.secondConfirmedAt))) throw new Error('专注守护确认记录无效');
+  if (value.scopeKey !== focusGuardScopeKey(mode, apps)) return null;
+  return {
+    disclosureVersion:1,
+    scopeKey:value.scopeKey,
+    firstConfirmedAt:value.firstConfirmedAt,
+    secondConfirmedAt:value.secondConfirmedAt as string | null
+  };
 }
 function checkUnique(items: { id: string }[], name: string): void { if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error(`本地${name}存在重复记录`); }
 export function migrateData(input: unknown): AppData {
@@ -80,11 +103,15 @@ export function migrateData(input: unknown): AppData {
   const sourceSettings = source.settings;
   const defaults = createInitialData().settings;
   const rawSettings = { ...defaults, ...sourceSettings };
-  if (!['mock', 'api'].includes(rawSettings.aiMode) || !['mint', 'lavender', 'peach'].includes(rawSettings.theme) || !['gradient', 'solid', 'image'].includes(rawSettings.backgroundType) || typeof rawSettings.notificationsEnabled !== 'boolean' || typeof rawSettings.personaNotificationsEnabled !== 'boolean' || typeof rawSettings.personaQuietHoursEnabled !== 'boolean' || !validNotificationTime(rawSettings.personaNotificationTime) || !validNotificationTime(rawSettings.personaQuietHoursStart) || !validNotificationTime(rawSettings.personaQuietHoursEnd) || !['warm', 'direct', 'light'].includes(rawSettings.personaNotificationTone as string)) throw new Error('设置项无效');
+  if (!['mock', 'api'].includes(rawSettings.aiMode) || !['mint', 'lavender', 'peach'].includes(rawSettings.theme) || !['gradient', 'solid', 'image'].includes(rawSettings.backgroundType) || typeof rawSettings.notificationsEnabled !== 'boolean' || typeof rawSettings.personaNotificationsEnabled !== 'boolean' || typeof rawSettings.personaQuietHoursEnabled !== 'boolean' || typeof rawSettings.focusGuardEnabled !== 'boolean' || !['insights', 'nudge'].includes(rawSettings.focusGuardMode as string) || !validNotificationTime(rawSettings.personaNotificationTime) || !validNotificationTime(rawSettings.personaQuietHoursStart) || !validNotificationTime(rawSettings.personaQuietHoursEnd) || !['warm', 'direct', 'light'].includes(rawSettings.personaNotificationTone as string)) throw new Error('设置项无效');
   const times = notificationTimes(sourceSettings.personaNotificationTimes, rawSettings.personaNotificationTime);
   const storedIds = notificationIds(sourceSettings.personaNotificationIds === undefined ? [] : rawSettings.personaNotificationIds);
   const legacyNotificationId = nullableString(rawSettings.personaNotificationId);
   const ids = [...new Set([...storedIds, ...(legacyNotificationId ? [legacyNotificationId] : [])])];
+  const focusGuardMode = rawSettings.focusGuardMode as FocusGuardMode;
+  const selectedFocusGuardApps = focusGuardApps(rawSettings.focusGuardSelectedApps);
+  const focusGuardConsentRecord = focusGuardConsent(rawSettings.focusGuardConsent, focusGuardMode, selectedFocusGuardApps);
+  const focusGuardEnabled = rawSettings.focusGuardEnabled === true && focusGuardMode === 'nudge' && selectedFocusGuardApps.length > 0 && Boolean(focusGuardConsentRecord?.secondConfirmedAt);
   const settings: Settings = {
     aiMode: rawSettings.aiMode as Settings['aiMode'], theme: rawSettings.theme as Settings['theme'],
     backgroundType: rawSettings.backgroundType as Settings['backgroundType'], notificationsEnabled: rawSettings.notificationsEnabled,
@@ -95,6 +122,10 @@ export function migrateData(input: unknown): AppData {
     personaNotificationTone: rawSettings.personaNotificationTone as Settings['personaNotificationTone'],
     personaQuietHoursEnabled: rawSettings.personaQuietHoursEnabled,
     personaQuietHoursStart: rawSettings.personaQuietHoursStart, personaQuietHoursEnd: rawSettings.personaQuietHoursEnd,
+    focusGuardMode,
+    focusGuardEnabled,
+    focusGuardSelectedApps:selectedFocusGuardApps,
+    focusGuardConsent:focusGuardConsentRecord,
     backgroundUri: nullableString(rawSettings.backgroundUri), selectedPersonaId: nullableString(rawSettings.selectedPersonaId),
   };
   if (settings.backgroundUri && !validImageUri(settings.backgroundUri)) throw new Error('背景图片地址无效');

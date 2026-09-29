@@ -5,3 +5,4 @@ export * from './tasks';
 export * from './timer';
 export * from './statistics';
 export * from './storage';
+export * from './focusGuard';

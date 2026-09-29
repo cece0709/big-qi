@@ -1,0 +1,4 @@
+<resources>
+  <string name="focus_guard_service_label">CampusFlow 专注守护</string>
+  <string name="focus_guard_service_description">仅在进行中的 CampusFlow 专注时段，检查你选定应用的前台包名并带回桌面。不会读取文字、密码、屏幕内容或上传数据。</string>
+</resources>

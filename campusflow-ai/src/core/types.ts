@@ -2,6 +2,18 @@ export const TASK_CATEGORIES = ['学习', '阅读', '运动', '休息', '课程'
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
 export type ResponseLength = 'short' | 'medium' | 'long';
 export type PersonaNotificationTone = 'warm' | 'direct' | 'light';
+export type FocusGuardMode = 'insights' | 'nudge';
+export interface FocusGuardApp {
+  packageName: string;
+  label: string;
+  selectedAt: string;
+}
+export interface FocusGuardConsent {
+  disclosureVersion: 1;
+  scopeKey: string;
+  firstConfirmedAt: string;
+  secondConfirmedAt: string | null;
+}
 export type PersonaCompletionField = 'name' | 'identity' | 'background' | 'personalityTags' | 'speakingStyle' | 'userNickname' | 'greeting' | 'dos' | 'donts' | 'pinnedMemories';
 export interface PersonaCompletionState {
   /** Fields still awaiting an explicit document detail or user-approved chat completion. */
@@ -52,6 +64,9 @@ export interface Settings {
   personaNotificationTimes: string[]; personaNotificationIds: string[];
   personaNotificationTone: PersonaNotificationTone;
   personaQuietHoursEnabled: boolean; personaQuietHoursStart: string; personaQuietHoursEnd: string;
+  /** Android-only and off by default. A changed scope clears the owner’s confirmation. */
+  focusGuardMode: FocusGuardMode; focusGuardEnabled: boolean;
+  focusGuardSelectedApps: FocusGuardApp[]; focusGuardConsent: FocusGuardConsent | null;
   theme: 'mint' | 'lavender' | 'peach'; backgroundType: 'gradient' | 'solid' | 'image';
   backgroundUri: string | null;
 }
