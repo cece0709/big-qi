@@ -43,8 +43,12 @@ function outputText(value:unknown):string {
   if(typeof value==='string')return value; if(Array.isArray(value))return value.filter((item):item is {text?:string}=>typeof item==='object'&&item!==null).map((item)=>typeof item.text==='string'?item.text:'').join('');
   return '';
 }
+function chatCompletionsUrl(baseUrl:string):string {
+  const root=baseUrl.replace(/\/+$/,'');
+  return root.endsWith('/v1beta/openai') ? root + '/chat/completions' : root + '/v1/chat/completions';
+}
 async function callJson(config:Required<Pick<ServerConfig,'apiKey'|'model'|'baseUrl'|'fetchImpl'>>, messages:{role:'system'|'user';content:string}[], signal:AbortSignal):Promise<string> {
-  const response=await config.fetchImpl(config.baseUrl.replace(/\/$/,'')+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${config.apiKey}`},body:JSON.stringify({model:config.model,messages,temperature:.2,response_format:{type:'json_object'}}),signal});
+  const response=await config.fetchImpl(chatCompletionsUrl(config.baseUrl),{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${config.apiKey}`},body:JSON.stringify({model:config.model,messages,temperature:.2,response_format:{type:'json_object'}}),signal});
   if(!response.ok)throw new Error(`上游 AI 服务错误（${response.status}）`);
   const json=await response.json() as {choices?:{message?:{content?:unknown}}[]} ;
   const content=outputText(json.choices?.[0]?.message?.content);
@@ -77,7 +81,7 @@ export function createCampusFlowServer(config:ServerConfig={}) {
         res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});
         const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),60_000);req.on('close',()=>controller.abort());
         try{
-          const response=await fetchImpl(baseUrl.replace(/\/$/,'')+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},body:JSON.stringify({model,stream:true,temperature:.55,messages:[{role:'system',content:buildSystemPrompt(persona)},...messages]}),signal:controller.signal});
+          const response=await fetchImpl(chatCompletionsUrl(baseUrl),{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},body:JSON.stringify({model,stream:true,temperature:.55,messages:[{role:'system',content:buildSystemPrompt(persona)},...messages]}),signal:controller.signal});
           if(!response.ok||!response.body)throw new Error(`上游 AI 服务错误（${response.status}）`);
           for await(const text of sseDeltas(response.body)){ndjson(res,{type:'delta',text});}
           ndjson(res,{type:'done'});
@@ -90,5 +94,4 @@ export function createCampusFlowServer(config:ServerConfig={}) {
   return createServer((req,res)=>{void handler(req,res);});
 }
 export function listenCampusFlow(config:ServerConfig,port:number):Server { const server=createCampusFlowServer(config);server.listen(port);return server; }
-
 
