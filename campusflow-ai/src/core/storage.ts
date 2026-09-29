@@ -8,7 +8,7 @@ export const STORAGE_KEY = 'campusflow:data:v1';
 export function createInitialData(now = new Date()): AppData {
   const personas = createExamplePersonas(now);
   return { schemaVersion: 1, personas, conversations: [], messages: [], tasks: [], focusSessions: [],
-    settings: { aiMode: 'mock', selectedPersonaId: personas[0]?.id ?? null, notificationsEnabled: false,
+    settings: { aiMode: process.env.EXPO_PUBLIC_API_BASE_URL ? 'api' : 'mock', selectedPersonaId: personas[0]?.id ?? null, notificationsEnabled: false,
       personaNotificationsEnabled: false, personaNotificationPersonaId: personas[0]?.id ?? null,
       personaNotificationTime: '20:00', personaNotificationId: null,
       personaNotificationTimes: ['20:00'], personaNotificationIds: [], personaNotificationTone: 'warm',

@@ -91,10 +91,10 @@ AI_BASE_URL=https://api.openai.com
 AI_MODEL=gpt-4o-mini
 ```
 
-Grok 可配置 provider=grok、base URL=https://api.x.ai、model=grok-4.7。Gemini 可配置 provider=gemini、base URL=https://generativelanguage.googleapis.com/v1beta/openai、model=gemini-3.8-flash。三者都使用兼容 Chat Completions 的服务端代理。Gemini API 有受限免费层，需从 Google AI Studio 创建 API 密钥；免费层内容可能用于改进 Google 产品。根目录 .env 写你部署的 HTTPS 代理地址：
+Grok 可配置 provider=grok、base URL=https://api.x.ai、model=grok-4.7。Gemini 可配置 provider=gemini、base URL=https://generativelanguage.googleapis.com/v1beta/openai、model=gemini-3.8-flash。三者都使用兼容 Chat Completions 的服务端代理。使用 Cloudflare Workers 时，server/cloudflare-worker.js 是与 App 的 /api/chat 和 /api/extract-task 接口匹配的代理实现；将其部署到独立 Worker，并在 Worker 的 Production Secret 中设置 GEMINI_API_KEY。Worker 对每个来源 IP 做基础限流（每分钟 20 次），但这是轻量防护，不是账户级配额。Gemini API 有受限免费层，需从 Google AI Studio 创建 API 密钥；免费层内容可能用于改进 Google 产品。根目录 .env 写你部署的 HTTPS 代理地址：
 
 ```dotenv
-EXPO_PUBLIC_API_BASE_URL=https://your-proxy.example.com
+EXPO_PUBLIC_API_BASE_URL=https://campusflow-gemini-api.celiacushion.workers.dev
 ```
 
 电脑浏览器可用 `http://localhost:8787`。Android 模拟器、真机与共享 APK 使用部署后的 HTTPS URL；不要把服务器密钥暴露给局域网中不受信任的设备。
