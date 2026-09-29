@@ -14,5 +14,10 @@ function loadEnv(path:string) {
 loadEnv(resolve(process.cwd(),'server','.env'));
 const port=Number(process.env.PORT ?? 8787);
 if(!Number.isInteger(port)||port<1||port>65535)throw new Error('PORT 必须是 1–65535');
-listenCampusFlow({apiKey:process.env.OPENAI_API_KEY,model:process.env.OPENAI_MODEL,baseUrl:process.env.OPENAI_BASE_URL},port);
-console.log(`CampusFlow AI proxy listening on http://127.0.0.1:${port} (key configured: ${Boolean(process.env.OPENAI_API_KEY)})`);
+const provider=(process.env.AI_PROVIDER ?? 'openai').trim().toLowerCase();
+if(provider!=='openai'&&provider!=='grok')throw new Error('AI_PROVIDER 只能是 openai 或 grok');
+const apiKey=process.env.AI_API_KEY ?? (provider==='grok'?process.env.XAI_API_KEY:process.env.OPENAI_API_KEY);
+const model=process.env.AI_MODEL ?? (provider==='grok'?'grok-4.7':'gpt-4o-mini');
+const baseUrl=process.env.AI_BASE_URL ?? (provider==='grok'?'https://api.x.ai':'https://api.openai.com');
+listenCampusFlow({apiKey,model,baseUrl},port);
+console.log('CampusFlow AI proxy listening on http://127.0.0.1:' + port + ' (provider: ' + provider + ', key configured: ' + Boolean(apiKey) + ')');

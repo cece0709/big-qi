@@ -85,12 +85,13 @@ Copy-Item -LiteralPath 'server\.env.example' -Destination 'server\.env'
 
 ```dotenv
 PORT=8787
-OPENAI_API_KEY=填写你自己的服务端密钥
-OPENAI_BASE_URL=https://api.openai.com
-OPENAI_MODEL=gpt-4o-mini
+AI_PROVIDER=openai
+AI_API_KEY=填写服务端密钥
+AI_BASE_URL=https://api.openai.com
+AI_MODEL=gpt-4o-mini
 ```
 
-模型名仅为示例，使用供应商和账号支持的模型。兼容接口应支持 Chat Completions 流式响应和任务 JSON 输出。根目录 `.env` 写你部署的 HTTPS 代理地址：
+Grok 可配置为 provider=grok、base URL=https://api.x.ai、model=grok-4.7，并把 xAI API 密钥填入服务端 AI_API_KEY。本项目使用兼容 Chat Completions 的接口。OpenAI 和 xAI 均提供这类接口。根目录 .env 写你部署的 HTTPS 代理地址：
 
 ```dotenv
 EXPO_PUBLIC_API_BASE_URL=https://your-proxy.example.com
@@ -156,6 +157,7 @@ V1 代理面向个人开发，无账户鉴权与多租户隔离；公开部署�
 图片/语音聊天、多模型、Apple 提醒事项、Health Connect、HealthKit、睡眠/步数/活动数据、个人动态/书架/唱片架/相册、好友点赞、角色主题市集、云同步、多设备登录、中英文切换与深色模式均为后续规划，详见 [ROADMAP.md](./ROADMAP.md)。
 
 更多文档：[需求](./PRD.md) · [架构](./ARCHITECTURE.md) · [隐私](./PRIVACY.md) · [测试](./TESTING.md)。
+
 
 
 

@@ -72,7 +72,7 @@ export function createCampusFlowServer(config:ServerConfig={}) {
         sendJson(res,200,result);return;
       }
       if(req.url==='/api/chat'&&req.method==='POST'){
-        if(!apiKey){sendJson(res,503,{error:'服务端未配置 OPENAI_API_KEY。请切换 Mock 模式，或在 server/.env 中配置密钥。'});return;}
+        if(!apiKey){sendJson(res,503,{error:'服务端尚未配置 AI API 密钥。请切换 Mock 模式，或联系应用管理员完成服务配置。'});return;}
         const payload=record(await body(req));const persona=personaFrom(payload.persona);const messages=messagesFrom(payload.messages);
         res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});
         const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),60_000);req.on('close',()=>controller.abort());
@@ -90,4 +90,5 @@ export function createCampusFlowServer(config:ServerConfig={}) {
   return createServer((req,res)=>{void handler(req,res);});
 }
 export function listenCampusFlow(config:ServerConfig,port:number):Server { const server=createCampusFlowServer(config);server.listen(port);return server; }
+
 
