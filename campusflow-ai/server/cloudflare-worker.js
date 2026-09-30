@@ -92,18 +92,45 @@ function systemPrompt(persona) {
 }
 
 function upstreamError(status) {
+  if ([502, 503, 504].includes(status)) return 'Gemini 暂时繁忙，自动恢复未成功，请稍后再试（' + status + '）。这不是手机断网，无需重装或更换密钥。';
   if (status === 429) return 'Gemini 免费额度暂时用完或请求过于频繁，请稍后再试';
   if (status === 401 || status === 403) return 'Gemini 密钥无效或当前项目尚未启用 Gemini API';
   return 'Gemini 服务请求失败（' + status + '）';
 }
 
-async function callGemini(env, payload, signal) {
+function waitForRetry(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const cancel = () => { clearTimeout(timer); reject(new Error('Request aborted')); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', cancel); resolve(); }, ms);
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) cancel();
+  });
+}
+
+async function callGeminiOnce(env, payload, signal) {
   return await fetch(GEMINI_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.GEMINI_API_KEY },
     body: JSON.stringify({ model: env.GEMINI_MODEL || DEFAULT_MODEL, ...payload }),
     signal,
   });
+}
+
+async function callGemini(env, payload, signal, request) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (signal.aborted) throw new Error('Request aborted');
+    const response = await callGeminiOnce(env, payload, signal);
+    if (![502, 503, 504].includes(response.status) || attempt === 2) return response;
+    // Count retries against the same existing IP budget; never multiply its allowance.
+    if (rateLimited(request)) return response;
+    const retryAfter = response.headers.get('Retry-After');
+    const seconds = retryAfter === null ? NaN : Number(retryAfter);
+    const indicated = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter || '') - Date.now();
+    const delay = Math.max(1000 * 2 ** attempt + Math.floor(Math.random() * 250), Number.isFinite(indicated) ? indicated : 0);
+    if (delay > 5000) return response;
+    await response.body?.cancel();
+    await waitForRetry(delay, signal);
+  }
 }
 
 function streamAsNdjson(upstream, request, abort, timer) {
@@ -149,9 +176,9 @@ function streamAsNdjson(upstream, request, abort, timer) {
           for (const line of lines) if (consume(line)) break;
         }
         if (pending && !finished) consume(pending);
-        if (!finished) send({ type: 'done' });
+        if (!finished) send({ type: 'error', message: 'Gemini 回复意外中断，请重试；已有内容已保留' });
       } catch {
-        if (!abort.signal.aborted) send({ type: 'error', message: 'Gemini 响应中断，请稍后重试' });
+        if (!request.signal.aborted) send({ type: 'error', message: abort.signal.aborted ? 'Gemini 回复超时，请稍后重试' : 'Gemini 响应中断，请稍后重试' });
       } finally {
         ended = true;
         clearTimeout(timer);
@@ -234,11 +261,11 @@ async function handleChat(request, env) {
       stream: true,
       temperature: 0.55,
       messages: [{ role: 'system', content: system }, ...messages],
-    }, abort.signal);
+    }, abort.signal, request);
     if (!upstream.ok || !upstream.body) {
       const errorText = upstreamError(upstream.status);
-      const details = await upstream.text().catch(() => '');
-      console.warn('Gemini chat error', upstream.status, details.slice(0, 500));
+      await upstream.body?.cancel().catch(() => undefined);
+      console.warn('Gemini chat error', upstream.status);
       clearTimeout(timer);
       return json({ error: errorText }, upstream.status === 429 ? 429 : 502);
     }
@@ -263,11 +290,11 @@ async function handleExtract(request, env) {
         { role: 'system', content: '你是任务提取器。只返回严格 JSON 对象，字段为 title, description, category(学习/阅读/运动/休息/课程/其他), dueDate(YYYY-MM-DD 或 null), dueTime(HH:mm 或 null), estimatedMinutes(正整数或 null), personaId:null, sourceMessageId:null。不能确定日期或时间时写 null，不得编造。' },
         { role: 'user', content: '当前本地日期：' + localDate + '\n文本：' + payload.text.trim() },
       ],
-    }, abort.signal);
+    }, abort.signal, request);
     if (!upstream.ok) {
       const errorText = upstreamError(upstream.status);
-      const details = await upstream.text().catch(() => '');
-      console.warn('Gemini extraction error', upstream.status, details.slice(0, 500));
+      await upstream.body?.cancel().catch(() => undefined);
+      console.warn('Gemini extraction error', upstream.status);
       return json({ error: errorText }, upstream.status === 429 ? 429 : 502);
     }
     const data = await upstream.json();
@@ -287,7 +314,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
     if (url.pathname === '/api/health' && request.method === 'GET') {
-      return json({ status: 'ok', providerConfigured: Boolean(env.GEMINI_API_KEY), mode: env.GEMINI_API_KEY ? 'api' : 'mock-required' });
+      return json({ status: 'ok', revision: '2026-09-30-retry-v1', providerConfigured: Boolean(env.GEMINI_API_KEY), mode: env.GEMINI_API_KEY ? 'api' : 'mock-required' });
     }
     if (!['/api/chat', '/api/extract-task'].includes(url.pathname) || request.method !== 'POST') return json({ error: '接口不存在' }, 404);
     if (!env.GEMINI_API_KEY) return json({ error: '服务端尚未配置 Gemini 密钥' }, 503);
